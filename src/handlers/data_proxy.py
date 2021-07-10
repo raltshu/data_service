@@ -5,7 +5,7 @@ class DataView(FlaskView):
 
     def index(self):
         #TODO: Data service get first 20 lines for display
-        print('Hello')
+        return "Hello"
         
 
 
