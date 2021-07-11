@@ -2,6 +2,7 @@ FROM python:3.9-slim
 
 WORKDIR /app
 ENV PYTHONPATH "${PYTHONPATH}:./src"
+RUN apt-get update && apt-get install -y python3-dev default-libmysqlclient-dev build-essential
 ENV FLASK_APP=main.py
 ENV FLASK_RUN_HOST=0.0.0.0
 ENV FLASK_RUN_PORT=5002
