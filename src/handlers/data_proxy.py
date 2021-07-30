@@ -1,4 +1,4 @@
-from types import MethodType
+
 from flask_classful import FlaskView, route
 from flask import request, Response
 import handlers.data_access
@@ -38,5 +38,5 @@ class DataView(FlaskView):
         data=request.get_json()
         alert_id = handlers.data_access.add_alert(data)
 
-        return Response(str(alert_id), status=200)
+        return str(alert_id)
 

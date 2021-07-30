@@ -35,8 +35,8 @@ alerts_table = Table('alerts_table', metadata,
     Column('alert_id', Integer, primary_key=True, autoincrement=True),
     Column('record_time', DateTime, server_default=sql.func.now()),
     Column('alert_sevirity', String(10)),
-    Column('alert_type', String(10)),
-    Column('alert_text',String(200))
+    Column('alert_type', String(50)),
+    Column('alert_text',String(1000))
     )
 
 
@@ -81,7 +81,7 @@ def submit_feedback(row_id, grade, user_prediction) -> None:
 
 def add_alert(data) -> int:
     insert_stmt = alerts_table.insert().values(
-        alert_sevirity=data['alert_sevirity'], alert_type=data['alert_type'], alert_text=['alert_text']
+        alert_sevirity=data['alert_sevirity'], alert_type=data['alert_type'], alert_text=data['alert_text']
     )
 
     with engine.connect() as conn:
