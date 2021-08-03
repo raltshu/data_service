@@ -1,9 +1,14 @@
-import os
+
+import os, requests, logging, json, datetime
 from sqlalchemy import create_engine, MetaData, Table, Column, Float, Integer, DateTime, String, sql
 import pandas as pd
 import seaborn as sb
+import sqlalchemy
+from sqlalchemy.sql.expression import table
 
 DB_NAME = os.environ['MYSQL_DATABASE']
+DIAMONDS_WEB_SOURCE = os.environ['DIAMONDS_WEB_SOURCE']
+
 config = {
     'user': os.environ['MYSQL_USER'],
     'password': os.environ['MYSQL_PASSWORD'],
@@ -39,27 +44,80 @@ alerts_table = Table('alerts_table', metadata,
     Column('alert_text',String(1000))
     )
 
+outsource_diamonds = Table('outsource_diamonds', metadata,
+    Column('index', Integer, primary_key=True, autoincrement=False),
+    Column('record_time', DateTime, server_default=sql.func.now()),
+    Column('carat', Float),
+    Column('cut', String(50)),
+    Column('color',String(50)),
+    Column('clarity',String(50)),
+    Column('depth', Float),
+    Column('table', Float),
+    Column('price', Float),
+    Column('x', Float),
+    Column('y', Float),
+    Column('z', Float)
+    )
+
+diamonds_outliers = Table('diamonds_outliers', metadata,
+    Column('index', Integer, primary_key=True, autoincrement=False),
+    Column('record_time', DateTime, server_default=sql.func.now()),
+    Column('carat', Float),
+    Column('cut', String(50)),
+    Column('color',String(50)),
+    Column('clarity',String(50)),
+    Column('depth', Float),
+    Column('table', Float),
+    Column('price', Float),
+    Column('x', Float),
+    Column('y', Float),
+    Column('z', Float)
+    )
+
 
 metadata.create_all(engine)
+
+
+def load_data_from_web():
+    data = requests.post(DIAMONDS_WEB_SOURCE)
+    df = pd.read_json(data.text)
+    with engine.connect() as conn:
+        for index, row in df.iterrows():
+            row_data = json.loads(row.to_json())
+            insert_stmt = \
+            sqlalchemy.dialects.mysql.insert(outsource_diamonds).values(row_data)
+            insert_stmt = insert_stmt.on_duplicate_key_update(row_data)
+                
+            result = conn.execute(insert_stmt)  
+
+    add_alert({'alert_sevirity':'INFO',
+    'alert_type':'LOAD_DATA_FROM_WEB',
+    'alert_text':f'Downloaded new {df.shape[0]:,d} rows from web service'}) 
 
 def load_diamonds_to_db():
     df = sb.load_dataset('diamonds')
     with engine.connect() as conn:
         df.to_sql("diamonds_org",conn,if_exists='replace',schema=DB_NAME)
 
-def read_table_from_db(table_name,limit=None, order_by=None, order_asc_desc=None):
+def read_table_from_db(table_name,limit=None, order_by=None, order_asc_desc=None, rand=None):
     query = f'SELECT * FROM {DB_NAME}.{table_name}'
-    if order_by is not None:
-        query = query + f' ORDER BY {order_by}'
-    if order_asc_desc is not None:
-        query = query + f' {order_asc_desc}'
-    if limit is not None:
-        query = query + f' LIMIT {limit}'
+    if rand is not None:
+        query = query + f' ORDER BY RAND() LIMIT {rand}'
+    else:
+        if order_by is not None:
+            query = query + f' ORDER BY {order_by}'
+        if order_asc_desc is not None:
+            query = query + f' {order_asc_desc}'
+        if limit is not None:
+            query = query + f' LIMIT {limit}'
+
+    size_query = f'SELECT COUNT(*) FROM {DB_NAME}.{table_name}'
 
     with engine.connect() as conn:
         df = pd.read_sql(query,conn)
-    
-    return df.to_json()
+        df2 = pd.read_sql(size_query, conn)
+
+    return {'df':df.to_json(), 'size':df2.to_json()}
 
 def audit_predition(row:dict) -> int:
     insert_stmt = prediction_audit_table.insert().values(carat = row['carat'],
@@ -78,6 +136,28 @@ def submit_feedback(row_id, grade, user_prediction) -> None:
     
     with engine.connect() as conn:
         result = conn.execute(update_stmt)
+
+def store_outliers(df: pd.DataFrame):
+    df['record_time']=\
+        df['record_time'].apply(lambda x:str(datetime.datetime.fromtimestamp(x.value/(10**9))))
+    # df['record_time'] = df['record_time'].values.astype('datetime64[us]')
+    # df['record_time'] = df['record_time'].to_timestamp()
+    
+    # df['record_time'] = pd.datetime(df['record_time'], unit='ms')
+
+    # df['record_time'] = df['record_time'].values.astype('datetime64[us]')
+    with engine.connect() as conn:
+        for index, row in df.iterrows():
+            row_data = json.loads(row.to_json())
+            insert_stmt = \
+            sqlalchemy.dialects.mysql.insert(diamonds_outliers).values(row_data)
+            insert_stmt = insert_stmt.on_duplicate_key_update(row_data)
+                
+            result = conn.execute(insert_stmt)  
+
+    add_alert({'alert_sevirity':'INFO',
+    'alert_type':'OUTLIERS_ADDED',
+    'alert_text':f'Added {df.shape[0]:,d} rows to outliers table'}) 
 
 def add_alert(data) -> int:
     insert_stmt = alerts_table.insert().values(
