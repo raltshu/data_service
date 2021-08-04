@@ -74,8 +74,9 @@ diamonds_outliers = Table('diamonds_outliers', metadata,
     Column('z', Float)
     )
 
-with engine.connect() as conn:
-    metadata.create_all(engine)
+def init_tables():  
+    with engine.connect() as conn:
+        metadata.create_all(engine)
 
 
 def load_data_from_web():
